@@ -3,10 +3,6 @@ import CryptoKit
 
 /// Ties VaultCrypto (MK wrap/unwrap + vault encrypt/decrypt) to on-disk
 /// storage. This is the type the app actually talks to.
-///
-/// Layout on disk (~/Library/Application Support/SessionVaultKit/):
-///   vault.dat      — AES-GCM(MK, JSON(SessionVault))
-///   vault.mk.wrap  — SE-wrapped MK for *this device*
 public final class SessionStore {
     private let crypto: VaultCrypto
     private let directory: URL
@@ -44,8 +40,6 @@ public final class SessionStore {
     /// Сбросить разблокировку (на будущее — авто-лок по таймауту).
     public func lock() { cachedMK = nil }
 
-    /// First run on this device: generate a fresh MK, wrap it with the
-    /// device's SE key, write an empty vault.
     @discardableResult
     public func initializeIfNeeded(deviceID: UUID = UUID()) throws -> SessionVault {
         try ensureDirectory()
@@ -70,13 +64,19 @@ public final class SessionStore {
     }
 
     /// Сохранить изменившиеся части вейлта. nil-параметр = оставить как было.
-    public func save(sessions: [Session]? = nil, snippets: [Snippet]? = nil, secrets: [String: String]? = nil) throws {
+    public func save(
+        sessions: [Session]? = nil,
+        snippets: [Snippet]? = nil,
+        secrets: [String: String]? = nil,
+        sshKeys: [SSHKey]? = nil
+    ) throws {
         let mk = try masterKey(reason: "Сохранить хранилище сессий")
 
         var vault = try load()
         if let sessions { vault.sessions = sessions }
         if let snippets { vault.snippets = snippets }
         if let secrets { vault.secrets = secrets }
+        if let sshKeys { vault.sshKeys = sshKeys }
         vault.updatedAt = Date()
 
         let encrypted = try crypto.encryptVault(vault, mk: mk)

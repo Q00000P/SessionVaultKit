@@ -7,15 +7,13 @@ public enum SecretKind: String {
     case privateKeyPassphrase
 }
 
-/// Секреты сессий. Хранятся ВНУТРИ шифрованного вейлта (поле secrets) — а не
-/// отдельными Keychain-элементами: элементы связки привязаны к подписи
-/// приложения, и каждый ребилд заставлял переподтверждать паролем каждый
-/// секрет. Вейлт защищён одним SE-ключом (Touch ID) — один палец на запуск,
-/// ребилды секреты не трогают, и они синкаются вместе с сессиями.
+/// Секреты. Живут внутри шифрованного вейлта (vault.secrets).
 ///
-/// Старые секреты из связки мигрируются лениво: при первом чтении секрет
-/// ищется в вейлте, не найден — читается из старого Keychain-элемента,
-/// перекладывается в вейлт и удаляется из связки.
+/// Passphrase ключа привязывается к КЛЮЧУ, а не к сессии: один RSA-ключ на
+/// пятнадцати нодах = одна фраза, введённая один раз.
+///   "key:<keyID>.passphrase"   — ключ из хранилища вейлта
+///   "path:<путь>.passphrase"   — файловый ключ (путь развёрнут, без ~)
+/// Легаси "<sessionID>.privateKeyPassphrase" мигрируется при первом чтении.
 public final class SecretStore {
     private let legacyService: String
     private let store: SessionStore
@@ -25,28 +23,30 @@ public final class SecretStore {
         self.legacyService = legacyService
     }
 
-    private func key(for sessionID: UUID, kind: SecretKind) -> String {
-        "\(sessionID.uuidString).\(kind.rawValue)"
+    // MARK: - Низкоуровневый доступ к словарю секретов
+
+    private func allSecrets() -> [String: String] {
+        (try? store.load().secrets) ?? [:]
     }
 
-    public func set(_ secret: String, for sessionID: UUID, kind: SecretKind) throws {
-        var secrets = (try? store.load().secrets) ?? [:]
-        secrets[key(for: sessionID, kind: kind)] = secret
+    private func put(_ value: String?, forKey key: String) throws {
+        var secrets = allSecrets()
+        secrets[key] = value
         try store.save(secrets: secrets)
-        // Старый элемент связки, если был — больше не нужен.
+    }
+
+    // MARK: - Пароли сессий (как раньше)
+
+    public func set(_ secret: String, for sessionID: UUID, kind: SecretKind) throws {
+        try put(secret, forKey: "\(sessionID.uuidString).\(kind.rawValue)")
         deleteLegacy(for: sessionID, kind: kind)
     }
 
     public func get(for sessionID: UUID, kind: SecretKind) throws -> String? {
-        let k = key(for: sessionID, kind: kind)
-        let vaultSecrets = (try? store.load().secrets) ?? [:]
-        if let v = vaultSecrets[k] { return v }
-
-        // Миграция из связки: нашли по-старому — переложили в вейлт, удалили.
+        let k = "\(sessionID.uuidString).\(kind.rawValue)"
+        if let v = allSecrets()[k] { return v }
         if let legacy = readLegacy(for: sessionID, kind: kind) {
-            var secrets = vaultSecrets
-            secrets[k] = legacy
-            try? store.save(secrets: secrets)
+            try? put(legacy, forKey: k)
             deleteLegacy(for: sessionID, kind: kind)
             return legacy
         }
@@ -54,16 +54,49 @@ public final class SecretStore {
     }
 
     public func delete(for sessionID: UUID, kind: SecretKind) throws {
-        var secrets = (try? store.load().secrets) ?? [:]
-        secrets.removeValue(forKey: key(for: sessionID, kind: kind))
-        try store.save(secrets: secrets)
+        try put(nil, forKey: "\(sessionID.uuidString).\(kind.rawValue)")
         deleteLegacy(for: sessionID, kind: kind)
     }
 
-    /// Call when a Session is deleted, so orphaned secrets don't pile up.
     public func deleteAll(for sessionID: UUID) {
         try? delete(for: sessionID, kind: .password)
         try? delete(for: sessionID, kind: .privateKeyPassphrase)
+    }
+
+    // MARK: - Passphrase ключей (по ключу, не по сессии)
+
+    public func setPassphrase(_ phrase: String, forKeyID keyID: UUID) throws {
+        try put(phrase, forKey: "key:\(keyID.uuidString).passphrase")
+    }
+
+    public func passphrase(forKeyID keyID: UUID) -> String? {
+        allSecrets()["key:\(keyID.uuidString).passphrase"]
+    }
+
+    public func deletePassphrase(forKeyID keyID: UUID) {
+        try? put(nil, forKey: "key:\(keyID.uuidString).passphrase")
+    }
+
+    public func setPassphrase(_ phrase: String, forPath path: String) throws {
+        try put(phrase, forKey: "path:\(Self.norm(path)).passphrase")
+    }
+
+    /// Passphrase файлового ключа. Если по пути не нашлось — пробуем легаси
+    /// (по сессии) и мигрируем на путь, чтобы остальные ноды с этим ключом
+    /// больше не спрашивали.
+    public func passphrase(forPath path: String, legacySession sessionID: UUID? = nil) -> String? {
+        let k = "path:\(Self.norm(path)).passphrase"
+        if let v = allSecrets()[k] { return v }
+        if let sessionID,
+           let phrase = (try? get(for: sessionID, kind: .privateKeyPassphrase)) ?? nil {
+            try? put(phrase, forKey: k)
+            return phrase
+        }
+        return nil
+    }
+
+    private static func norm(_ path: String) -> String {
+        (path as NSString).expandingTildeInPath
     }
 
     // MARK: - Legacy Keychain (только чтение для миграции + удаление)
