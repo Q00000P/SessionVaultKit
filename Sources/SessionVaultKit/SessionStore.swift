@@ -68,7 +68,8 @@ public final class SessionStore {
         sessions: [Session]? = nil,
         snippets: [Snippet]? = nil,
         secrets: [String: String]? = nil,
-        sshKeys: [SSHKey]? = nil
+        sshKeys: [SSHKey]? = nil,
+        cmdHistory: [String: CmdStat]? = nil
     ) throws {
         let mk = try masterKey(reason: "Сохранить хранилище сессий")
 
@@ -77,6 +78,7 @@ public final class SessionStore {
         if let snippets { vault.snippets = snippets }
         if let secrets { vault.secrets = secrets }
         if let sshKeys { vault.sshKeys = sshKeys }
+        if let cmdHistory { vault.cmdHistory = cmdHistory }
         vault.updatedAt = Date()
 
         let encrypted = try crypto.encryptVault(vault, mk: mk)

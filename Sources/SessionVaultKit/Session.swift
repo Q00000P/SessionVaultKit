@@ -16,12 +16,21 @@ public struct SSHKey: Codable, Identifiable, Sendable, Equatable {
     /// PEM/OpenSSH-текст приватного ключа (может быть зашифрован passphrase).
     public var privateKey: String
     public var createdAt: Date
+    /// Синк: время последнего изменения (ISO8601, сравнимо лексикографически).
+    public var updatedAt: String?
+    /// Синк: tombstone — запись удалена, но живёт для распространения удаления.
+    public var deleted: Bool?
 
-    public init(id: UUID = UUID(), name: String, privateKey: String, createdAt: Date = Date()) {
+    public init(
+        id: UUID = UUID(), name: String, privateKey: String,
+        createdAt: Date = Date(), updatedAt: String? = nil, deleted: Bool? = nil
+    ) {
         self.id = id
         self.name = name
         self.privateKey = privateKey
         self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.deleted = deleted
     }
 }
 
@@ -41,6 +50,10 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
 
     /// Free-form: hostkey (TOFU), подсказки импорта и т.п.
     public var extra: [String: String]
+    /// Синк: время последнего изменения (ISO8601, сравнимо лексикографически).
+    public var updatedAt: String?
+    /// Синк: tombstone.
+    public var deleted: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -51,7 +64,9 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
         authMethod: AuthMethod,
         keyID: UUID? = nil,
         privateKeyPath: String? = nil,
-        extra: [String: String] = [:]
+        extra: [String: String] = [:],
+        updatedAt: String? = nil,
+        deleted: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -62,6 +77,8 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
         self.keyID = keyID
         self.privateKeyPath = privateKeyPath
         self.extra = extra
+        self.updatedAt = updatedAt
+        self.deleted = deleted
     }
 }
 
@@ -70,11 +87,35 @@ public struct Snippet: Codable, Identifiable, Sendable, Equatable {
     public let id: UUID
     public var title: String
     public var command: String
+    /// Синк: время последнего изменения (ISO8601) и tombstone.
+    public var updatedAt: String?
+    public var deleted: Bool?
 
-    public init(id: UUID = UUID(), title: String, command: String) {
+    public init(
+        id: UUID = UUID(), title: String, command: String,
+        updatedAt: String? = nil, deleted: Bool? = nil
+    ) {
         self.id = id
         self.title = title
         self.command = command
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+    }
+}
+
+/// Статистика команды для подсказок (журнал набора). Merge между
+/// устройствами идемпотентен: count = max, lastUsed = max (ISO8601-строка).
+public struct CmdStat: Codable, Sendable, Equatable {
+    public var count: Int
+    public var lastUsed: String?
+    /// Tombstone: команда удалена из журнала. Побеждает более свежий
+    /// lastUsed — повторный ввод после удаления воскрешает запись.
+    public var deleted: Bool?
+
+    public init(count: Int = 0, lastUsed: String? = nil, deleted: Bool? = nil) {
+        self.count = count
+        self.lastUsed = lastUsed
+        self.deleted = deleted
     }
 }
 
@@ -94,6 +135,8 @@ public struct SessionVault: Codable, Sendable {
     public var secrets: [String: String]?
     /// Приватные ключи в вейлте.
     public var sshKeys: [SSHKey]?
+    /// Журнал команд для подсказок (синкается, кап ~500).
+    public var cmdHistory: [String: CmdStat]?
 
     public init(
         schemaVersion: Int = 1,
@@ -102,7 +145,8 @@ public struct SessionVault: Codable, Sendable {
         sessions: [Session] = [],
         snippets: [Snippet]? = nil,
         secrets: [String: String]? = nil,
-        sshKeys: [SSHKey]? = nil
+        sshKeys: [SSHKey]? = nil,
+        cmdHistory: [String: CmdStat]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.deviceID = deviceID
@@ -111,5 +155,6 @@ public struct SessionVault: Codable, Sendable {
         self.snippets = snippets
         self.secrets = secrets
         self.sshKeys = sshKeys
+        self.cmdHistory = cmdHistory
     }
 }
