@@ -119,6 +119,21 @@ public struct CmdStat: Codable, Sendable, Equatable {
     }
 }
 
+/// Запись пользовательского словаря команд (синкается).
+public struct DictEntry: Codable, Sendable, Equatable {
+    /// "server" | "mac" | "both"
+    public var scope: String?
+    public var updatedAt: String?
+    /// true — скрыть (в т.ч. встроенную команду с таким текстом).
+    public var deleted: Bool?
+
+    public init(scope: String? = nil, updatedAt: String? = nil, deleted: Bool? = nil) {
+        self.scope = scope
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+    }
+}
+
 /// Top-level vault payload. Все новые поля — optional: старые вейлты
 /// читаются без пересоздания.
 public struct SessionVault: Codable, Sendable {
@@ -136,7 +151,12 @@ public struct SessionVault: Codable, Sendable {
     /// Приватные ключи в вейлте.
     public var sshKeys: [SSHKey]?
     /// Журнал команд для подсказок (синкается, кап ~500).
+    /// Легаси-имя = журнал СЕРВЕРНЫХ команд (SSH-вкладки).
     public var cmdHistory: [String: CmdStat]?
+    /// Доп. журналы по скоупам: "mac" — локальный терминал мака и т.п.
+    public var cmdHistoryScopes: [String: [String: CmdStat]]?
+    /// Пользовательский словарь команд (добавления и скрытия встроенных).
+    public var cmdDictUser: [String: DictEntry]?
 
     public init(
         schemaVersion: Int = 1,
@@ -146,7 +166,9 @@ public struct SessionVault: Codable, Sendable {
         snippets: [Snippet]? = nil,
         secrets: [String: String]? = nil,
         sshKeys: [SSHKey]? = nil,
-        cmdHistory: [String: CmdStat]? = nil
+        cmdHistory: [String: CmdStat]? = nil,
+        cmdHistoryScopes: [String: [String: CmdStat]]? = nil,
+        cmdDictUser: [String: DictEntry]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.deviceID = deviceID
@@ -156,5 +178,7 @@ public struct SessionVault: Codable, Sendable {
         self.secrets = secrets
         self.sshKeys = sshKeys
         self.cmdHistory = cmdHistory
+        self.cmdHistoryScopes = cmdHistoryScopes
+        self.cmdDictUser = cmdDictUser
     }
 }
