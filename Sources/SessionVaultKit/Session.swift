@@ -103,6 +103,41 @@ public struct Snippet: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+/// Команда с Git (гисты и т.п.): заводится вручную — имя (по нему ищем и
+/// выводим), сама команда и заметка. Канон поля вейлта "gitCommands" общий
+/// с Windows/Android. Синк LWW по updatedAt, удаление — tombstone.
+public struct GitCommand: Codable, Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public var name: String
+    public var command: String
+    public var note: String
+    public var updatedAt: String?
+    public var deleted: Bool?
+
+    public init(
+        id: UUID = UUID(), name: String, command: String, note: String = "",
+        updatedAt: String? = nil, deleted: Bool? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.command = command
+        self.note = note
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+    }
+
+    // note может отсутствовать в чужом JSON — не падаем.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        command = try c.decodeIfPresent(String.self, forKey: .command) ?? ""
+        note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+        deleted = try c.decodeIfPresent(Bool.self, forKey: .deleted)
+    }
+}
+
 /// Статистика команды для подсказок (журнал набора). Merge между
 /// устройствами идемпотентен: count = max, lastUsed = max (ISO8601-строка).
 public struct CmdStat: Codable, Sendable, Equatable {
@@ -157,6 +192,8 @@ public struct SessionVault: Codable, Sendable {
     public var cmdHistoryScopes: [String: [String: CmdStat]]?
     /// Пользовательский словарь команд (добавления и скрытия встроенных).
     public var cmdDictUser: [String: DictEntry]?
+    /// Команды с Git (канон Windows: "gitCommands").
+    public var gitCommands: [GitCommand]?
 
     public init(
         schemaVersion: Int = 1,
@@ -168,7 +205,8 @@ public struct SessionVault: Codable, Sendable {
         sshKeys: [SSHKey]? = nil,
         cmdHistory: [String: CmdStat]? = nil,
         cmdHistoryScopes: [String: [String: CmdStat]]? = nil,
-        cmdDictUser: [String: DictEntry]? = nil
+        cmdDictUser: [String: DictEntry]? = nil,
+        gitCommands: [GitCommand]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.deviceID = deviceID
@@ -180,5 +218,6 @@ public struct SessionVault: Codable, Sendable {
         self.cmdHistory = cmdHistory
         self.cmdHistoryScopes = cmdHistoryScopes
         self.cmdDictUser = cmdDictUser
+        self.gitCommands = gitCommands
     }
 }
